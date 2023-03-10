@@ -23,21 +23,13 @@ import com.ververica.cdc.connectors.mysql.source.offset.BinlogOffset;
 import com.ververica.cdc.connectors.mysql.source.split.MySqlSnapshotSplit;
 import com.ververica.cdc.connectors.mysql.source.utils.StatementUtils;
 import io.debezium.DebeziumException;
-import io.debezium.connector.mysql.MySqlConnection;
-import io.debezium.connector.mysql.MySqlConnectorConfig;
-import io.debezium.connector.mysql.MySqlDatabaseSchema;
-import io.debezium.connector.mysql.MySqlOffsetContext;
-import io.debezium.connector.mysql.MySqlValueConverters;
+import io.debezium.connector.mysql.*;
 import io.debezium.pipeline.EventDispatcher;
 import io.debezium.pipeline.metrics.SnapshotChangeEventSourceMetrics;
 import io.debezium.pipeline.source.AbstractSnapshotChangeEventSource;
 import io.debezium.pipeline.spi.ChangeRecordEmitter;
 import io.debezium.pipeline.spi.SnapshotResult;
-import io.debezium.relational.Column;
-import io.debezium.relational.RelationalSnapshotChangeEventSource;
-import io.debezium.relational.SnapshotChangeRecordEmitter;
-import io.debezium.relational.Table;
-import io.debezium.relational.TableId;
+import io.debezium.relational.*;
 import io.debezium.schema.TopicSelector;
 import io.debezium.util.Clock;
 import io.debezium.util.ColumnUtils;
@@ -48,23 +40,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.UnsupportedEncodingException;
-import java.sql.Blob;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Types;
+import java.sql.*;
 import java.time.Duration;
 import java.util.Calendar;
 
 import static com.ververica.cdc.connectors.mysql.debezium.DebeziumUtils.currentBinlogOffset;
 
-/** Task to read snapshot split of table. */
+/**
+ * Task to read snapshot split of table.
+ */
 public class MySqlSnapshotSplitReadTask
         extends AbstractSnapshotChangeEventSource<MySqlOffsetContext> {
 
     private static final Logger LOG = LoggerFactory.getLogger(MySqlSnapshotSplitReadTask.class);
 
-    /** Interval for showing a log statement with the progress while scanning a single table. */
+    /**
+     * Interval for showing a log statement with the progress while scanning a single table.
+     */
     private static final Duration LOG_INTERVAL = Duration.ofMillis(10_000);
 
     private final MySqlConnectorConfig connectorConfig;
@@ -128,11 +120,8 @@ public class MySqlSnapshotSplitReadTask
             SnapshotContext<MySqlOffsetContext> snapshotContext,
             SnapshottingTask snapshottingTask)
             throws Exception {
-        final RelationalSnapshotChangeEventSource.RelationalSnapshotContext<MySqlOffsetContext>
-                ctx =
-                        (RelationalSnapshotChangeEventSource.RelationalSnapshotContext<
-                                        MySqlOffsetContext>)
-                                snapshotContext;
+        final RelationalSnapshotChangeEventSource.RelationalSnapshotContext<MySqlOffsetContext> ctx =
+                (RelationalSnapshotChangeEventSource.RelationalSnapshotContext<MySqlOffsetContext>) snapshotContext;
         ctx.offset = previousOffset;
         final SignalEventDispatcher signalEventDispatcher =
                 new SignalEventDispatcher(
@@ -151,7 +140,12 @@ public class MySqlSnapshotSplitReadTask
                 snapshotSplit, lowWatermark, SignalEventDispatcher.WatermarkKind.LOW);
 
         LOG.info("Snapshot step 2 - Snapshotting data");
-        createDataEvents(ctx, snapshotSplit.getTableId());
+        try {
+            createDataEvents(ctx, snapshotSplit.getTableId());
+        } catch (Exception e) {
+            LOG.error("Snapshot step 2 - error, but this table will be skipped", e);
+            return SnapshotResult.skipped(previousOffset);
+        }
 
         final BinlogOffset highWatermark = currentBinlogOffset(jdbcConnection);
         LOG.info(
@@ -195,7 +189,9 @@ public class MySqlSnapshotSplitReadTask
         snapshotReceiver.completeSnapshot();
     }
 
-    /** Dispatches the data change events for the records of a single table. */
+    /**
+     * Dispatches the data change events for the records of a single table.
+     */
     private void createDataEventsForTable(
             RelationalSnapshotChangeEventSource.RelationalSnapshotContext snapshotContext,
             EventDispatcher.SnapshotReceiver snapshotReceiver,
@@ -218,16 +214,16 @@ public class MySqlSnapshotSplitReadTask
                 selectSql);
 
         try (PreparedStatement selectStatement =
-                        StatementUtils.readTableSplitDataStatement(
-                                jdbcConnection,
-                                selectSql,
-                                snapshotSplit.getSplitStart() == null,
-                                snapshotSplit.getSplitEnd() == null,
-                                snapshotSplit.getSplitStart(),
-                                snapshotSplit.getSplitEnd(),
-                                snapshotSplit.getSplitKeyType().getFieldCount(),
-                                connectorConfig.getQueryFetchSize());
-                ResultSet rs = selectStatement.executeQuery()) {
+                     StatementUtils.readTableSplitDataStatement(
+                             jdbcConnection,
+                             selectSql,
+                             snapshotSplit.getSplitStart() == null,
+                             snapshotSplit.getSplitEnd() == null,
+                             snapshotSplit.getSplitStart(),
+                             snapshotSplit.getSplitEnd(),
+                             snapshotSplit.getSplitKeyType().getFieldCount(),
+                             connectorConfig.getQueryFetchSize());
+             ResultSet rs = selectStatement.executeQuery()) {
 
             ColumnUtils.ColumnArray columnArray = ColumnUtils.toArray(rs, table);
             long rows = 0;
@@ -362,7 +358,7 @@ public class MySqlSnapshotSplitReadTask
 
         try {
             return MySqlValueConverters.containsZeroValuesInDatePart(
-                            (new String(b.getBytes(1, (int) (b.length())), "UTF-8")), column, table)
+                    (new String(b.getBytes(1, (int) (b.length())), "UTF-8")), column, table)
                     ? null
                     : rs.getTimestamp(fieldNo, Calendar.getInstance());
         } catch (UnsupportedEncodingException e) {
