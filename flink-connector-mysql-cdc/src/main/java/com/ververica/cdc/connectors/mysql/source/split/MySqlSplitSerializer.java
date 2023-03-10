@@ -16,12 +16,6 @@
 
 package com.ververica.cdc.connectors.mysql.source.split;
 
-import org.apache.flink.core.io.SimpleVersionedSerializer;
-import org.apache.flink.core.memory.DataInputDeserializer;
-import org.apache.flink.core.memory.DataOutputSerializer;
-import org.apache.flink.table.types.logical.RowType;
-import org.apache.flink.table.types.logical.utils.LogicalTypeParser;
-
 import com.ververica.cdc.connectors.mysql.source.offset.BinlogOffset;
 import com.ververica.cdc.debezium.history.FlinkJsonTableChangeSerializer;
 import io.debezium.document.Document;
@@ -29,6 +23,11 @@ import io.debezium.document.DocumentReader;
 import io.debezium.document.DocumentWriter;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges.TableChange;
+import org.apache.flink.core.io.SimpleVersionedSerializer;
+import org.apache.flink.core.memory.DataInputDeserializer;
+import org.apache.flink.core.memory.DataOutputSerializer;
+import org.apache.flink.table.types.logical.RowType;
+import org.apache.flink.table.types.logical.utils.LogicalTypeParser;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -37,12 +36,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.ververica.cdc.connectors.mysql.source.utils.SerializerUtils.readBinlogPosition;
-import static com.ververica.cdc.connectors.mysql.source.utils.SerializerUtils.rowToSerializedString;
-import static com.ververica.cdc.connectors.mysql.source.utils.SerializerUtils.serializedStringToRow;
-import static com.ververica.cdc.connectors.mysql.source.utils.SerializerUtils.writeBinlogPosition;
+import static com.ververica.cdc.connectors.mysql.source.utils.SerializerUtils.*;
 
-/** A serializer for the {@link MySqlSplit}. */
+/**
+ * A serializer for the {@link MySqlSplit}.
+ */
 public final class MySqlSplitSerializer implements SimpleVersionedSerializer<MySqlSplit> {
 
     public static final MySqlSplitSerializer INSTANCE = new MySqlSplitSerializer();
@@ -181,15 +179,39 @@ public final class MySqlSplitSerializer implements SimpleVersionedSerializer<MyS
             Map<TableId, TableChange> tableSchemas, DataOutputSerializer out) throws IOException {
         FlinkJsonTableChangeSerializer jsonSerializer = new FlinkJsonTableChangeSerializer();
         DocumentWriter documentWriter = DocumentWriter.defaultWriter();
-        final int size = tableSchemas.size();
+        Map<TableId, TableChange> tables = copyTableSchemas(tableSchemas);
+        final int size = tables.size();
         out.writeInt(size);
-        for (Map.Entry<TableId, TableChange> entry : tableSchemas.entrySet()) {
+        for (Map.Entry<TableId, TableChange> entry : tables.entrySet()) {
             out.writeUTF(entry.getKey().toString());
             final String tableChangeStr =
                     documentWriter.write(jsonSerializer.toDocument(entry.getValue()));
             final byte[] tableChangeBytes = tableChangeStr.getBytes(StandardCharsets.UTF_8);
             out.writeInt(tableChangeBytes.length);
             out.write(tableChangeBytes);
+        }
+    }
+
+    private static Map<TableId, TableChange> copyTableSchemas(Map<TableId, TableChange> tableSchemas) {
+        int loop = 0;
+        long start = System.currentTimeMillis();
+        while (true) {
+            try {
+                return new HashMap<>(tableSchemas);
+            } catch (Exception e) {
+                long error = System.currentTimeMillis();
+                if (error - start > 1000) {
+                    throw e;
+                }
+
+                try {
+                    System.out.println("copy table schemas error！【times: " + ++loop +
+                            ", size: " + tableSchemas.size() + "】" + e.getMessage());
+                    Thread.sleep(1);
+                } catch (Exception interruptedException) {
+                    interruptedException.printStackTrace();
+                }
+            }
         }
     }
 

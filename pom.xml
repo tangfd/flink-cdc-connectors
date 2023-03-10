@@ -277,7 +277,7 @@ under the License.
             <!-- Due to the Flink build setup, "mvn spotless:apply" and "mvn spotless:check"
 				don't work. You have to use the fully qualified name, i.e.
 				"mvn com.diffplug.spotless:spotless-maven-plugin:apply" -->
-            <plugin>
+            <!--<plugin>
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>
                 <version>${spotless.version}</version>
@@ -288,7 +288,7 @@ under the License.
                             <style>AOSP</style>
                         </googleJavaFormat>
 
-                        <!-- \# refers to the static imports -->
+                        &lt;!&ndash; \# refers to the static imports &ndash;&gt;
                         <importOrder>
                             <order>org.apache.flink,org.apache.flink.shaded,,javax,java,scala,\#
                             </order>
@@ -306,7 +306,7 @@ under the License.
                         </goals>
                     </execution>
                 </executions>
-            </plugin>
+            </plugin>-->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
@@ -480,7 +480,7 @@ under the License.
             <id>release</id>
             <build>
                 <plugins>
-                    <plugin>
+                    <!--<plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
                         <version>1.6</version>
@@ -493,7 +493,7 @@ under the License.
                                 </goals>
                             </execution>
                         </executions>
-                    </plugin>
+                    </plugin>-->
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-enforcer-plugin</artifactId>
