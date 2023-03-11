@@ -8,28 +8,14 @@ package io.debezium.connector.mysql;
 
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import com.github.shyiko.mysql.binlog.BinaryLogClient.LifecycleListener;
-import com.github.shyiko.mysql.binlog.event.DeleteRowsEventData;
-import com.github.shyiko.mysql.binlog.event.Event;
-import com.github.shyiko.mysql.binlog.event.EventData;
-import com.github.shyiko.mysql.binlog.event.EventHeader;
-import com.github.shyiko.mysql.binlog.event.EventHeaderV4;
-import com.github.shyiko.mysql.binlog.event.EventType;
-import com.github.shyiko.mysql.binlog.event.GtidEventData;
-import com.github.shyiko.mysql.binlog.event.QueryEventData;
-import com.github.shyiko.mysql.binlog.event.RotateEventData;
-import com.github.shyiko.mysql.binlog.event.RowsQueryEventData;
-import com.github.shyiko.mysql.binlog.event.TableMapEventData;
-import com.github.shyiko.mysql.binlog.event.UpdateRowsEventData;
-import com.github.shyiko.mysql.binlog.event.WriteRowsEventData;
+import com.github.shyiko.mysql.binlog.event.*;
 import com.github.shyiko.mysql.binlog.event.deserialization.EventDataDeserializationException;
 import com.github.shyiko.mysql.binlog.event.deserialization.EventDeserializer;
 import com.github.shyiko.mysql.binlog.event.deserialization.GtidEventDataDeserializer;
 import com.github.shyiko.mysql.binlog.io.ByteArrayInputStream;
-import com.github.shyiko.mysql.binlog.network.AuthenticationException;
 import com.github.shyiko.mysql.binlog.network.DefaultSSLSocketFactory;
-import com.github.shyiko.mysql.binlog.network.SSLMode;
 import com.github.shyiko.mysql.binlog.network.SSLSocketFactory;
-import com.github.shyiko.mysql.binlog.network.ServerException;
+import com.github.shyiko.mysql.binlog.network.*;
 import io.debezium.DebeziumException;
 import io.debezium.annotation.SingleThreadAccess;
 import io.debezium.config.CommonConnectorConfig.EventProcessingFailureHandlingMode;
@@ -47,33 +33,21 @@ import io.debezium.util.Clock;
 import io.debezium.util.Metronome;
 import io.debezium.util.Strings;
 import io.debezium.util.Threads;
+import org.apache.kafka.connect.errors.ConnectException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
 
-import javax.net.ssl.KeyManager;
-import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-
+import javax.net.ssl.*;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.security.GeneralSecurityException;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.UnrecoverableKeyException;
+import java.security.*;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -124,7 +98,9 @@ public class MySqlStreamingChangeEventSource
     @SingleThreadAccess("binlog client thread")
     private Instant eventTimestamp;
 
-    /** Describe binlog position. */
+    /**
+     * Describe binlog position.
+     */
     public static class BinlogPosition {
         final String filename;
         final long position;
@@ -875,7 +851,12 @@ public class MySqlStreamingChangeEventSource
                 for (int row = startingRowNumber; row != numRows; ++row) {
                     offsetContext.setRowNumber(row, numRows);
                     offsetContext.event(tableId, eventTimestamp);
-                    changeEmitter.emit(tableId, rows.get(row));
+                    try {
+                        changeEmitter.emit(tableId, rows.get(row));
+                    } catch (ConnectException e) {
+                        LOGGER.error("table column has changed, skip this table【tableId: {}】", tableId, e);
+                        return;
+                    }
                     count++;
                 }
                 if (LOGGER.isDebugEnabled()) {
@@ -1212,24 +1193,26 @@ public class MySqlStreamingChangeEventSource
                     protected void initSSLContext(SSLContext sc) throws GeneralSecurityException {
                         sc.init(
                                 finalKMS,
-                                new TrustManager[] {
-                                    new X509TrustManager() {
+                                new TrustManager[]{
+                                        new X509TrustManager() {
 
-                                        @Override
-                                        public void checkClientTrusted(
-                                                X509Certificate[] x509Certificates, String s)
-                                                throws CertificateException {}
+                                            @Override
+                                            public void checkClientTrusted(
+                                                    X509Certificate[] x509Certificates, String s)
+                                                    throws CertificateException {
+                                            }
 
-                                        @Override
-                                        public void checkServerTrusted(
-                                                X509Certificate[] x509Certificates, String s)
-                                                throws CertificateException {}
+                                            @Override
+                                            public void checkServerTrusted(
+                                                    X509Certificate[] x509Certificates, String s)
+                                                    throws CertificateException {
+                                            }
 
-                                        @Override
-                                        public X509Certificate[] getAcceptedIssuers() {
-                                            return new X509Certificate[0];
+                                            @Override
+                                            public X509Certificate[] getAcceptedIssuers() {
+                                                return new X509Certificate[0];
+                                            }
                                         }
-                                    }
                                 },
                                 null);
                     }
@@ -1286,9 +1269,9 @@ public class MySqlStreamingChangeEventSource
      * <p>This method does not mutate any state in the context.
      *
      * @param availableServerGtidSet the GTID set currently available in the MySQL server
-     * @param purgedServerGtid the GTID set already purged by the MySQL server
+     * @param purgedServerGtid       the GTID set already purged by the MySQL server
      * @return A GTID set meant for consuming from a MySQL binlog; may return null if the SourceInfo
-     *     has no GTIDs and therefore none were filtered
+     * has no GTIDs and therefore none were filtered
      */
     public GtidSet filterGtidSet(
             MySqlOffsetContext offsetContext,
@@ -1383,7 +1366,9 @@ public class MySqlStreamingChangeEventSource
         return new DebeziumException(msg, error);
     }
 
-    /** LifecycleListener for Reader Thread. */
+    /**
+     * LifecycleListener for Reader Thread.
+     */
     protected final class ReaderThreadLifecycleListener implements LifecycleListener {
         private final MySqlOffsetContext offsetContext;
 
